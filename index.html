@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Pink Particle Hand Control</title>
+<style>
+  :root{color-scheme:dark;--pink:#ff55c8;--hot:#ff9be5;--panel:rgba(22,10,31,.78)}
+  *{box-sizing:border-box} html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#05030a;color:#fff;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif}
+  #scene{position:fixed;inset:0;width:100%;height:100%;display:block}
+  .hud{position:fixed;z-index:2;left:16px;top:16px;max-width:min(440px,calc(100vw - 32px));padding:15px 17px;border:1px solid #ff8cdb45;border-radius:18px;background:var(--panel);backdrop-filter:blur(14px);box-shadow:0 0 35px #ff36bd12}
+  h1{font-size:clamp(17px,3vw,23px);margin:0 0 5px;letter-spacing:.02em}.sub{font-size:12px;color:#d8bcd6;line-height:1.45;margin-bottom:12px}
+  .controls{display:flex;flex-wrap:wrap;gap:7px}.controls button,.controls select{border:1px solid #ff8cdb55;border-radius:10px;padding:9px 11px;background:#29152f;color:#fff;font-size:12px;cursor:pointer}.controls button.primary{background:linear-gradient(135deg,#ff35b8,#9d38ff);border:0;font-weight:700}
+  #status{font-size:12px;color:#ffc4ec;margin-top:10px;line-height:1.4}.tips{font-size:11px;color:#cdb7d0;margin-top:7px;line-height:1.5}
+  #cameraBox{position:fixed;right:16px;bottom:16px;width:min(180px,34vw);aspect-ratio:4/3;border:1px solid #ff8cdb66;border-radius:14px;overflow:hidden;background:#140c1b;box-shadow:0 0 25px #ff35b822;z-index:2}
+  #video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:.75}#camLabel{position:absolute;bottom:5px;left:7px;background:#09040bbd;padding:4px 6px;border-radius:6px;font-size:10px}
+  .signature{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);font-size:10px;color:#a88aa9;letter-spacing:.22em;white-space:nowrap;pointer-events:none}
+  @media(max-width:560px){.hud{left:10px;top:10px;padding:12px;width:calc(100vw - 20px)}.sub{max-width:90%}.signature{bottom:8px;font-size:8px}#cameraBox{right:10px;bottom:30px;width:118px}}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<section class="hud">
+  <h1>✦ PINK PARTICLE STUDIO</h1>
+  <div class="sub">Gerakkan tangan di depan kamera untuk mengendalikan partikel bercahaya.</div>
+  <div class="controls">
+    <button id="cameraBtn" class="primary">Aktifkan kamera</button>
+    <select id="shape" aria-label="Pilih bentuk"><option value="galaxy">Galaxy</option><option value="heart">Heart</option><option value="butterfly">Butterfly</option><option value="spiral">Spiral</option><option value="wave">Wave</option></select>
+    <button id="burstBtn">✧ Burst</button><button id="pauseBtn">Jeda</button>
+  </div>
+  <div id="status">Mode demo aktif. Tekan “Aktifkan kamera” untuk mulai deteksi tangan.</div>
+  <div class="tips">Tips: gerakkan telapak untuk menggeser efek • cubit ibu jari + telunjuk untuk menarik partikel • buka telapak untuk menyebarkannya.</div>
+</section>
+<div id="cameraBox"><video id="video" autoplay muted playsinline></video><div id="camLabel">CAMERA PREVIEW</div></div>
+<div class="signature">INTERACTIVE HAND-TRACKED PARTICLES</div>
+<script type="module">
+import { FilesetResolver, HandLandmarker } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const canvas=document.querySelector('#scene'),ctx=canvas.getContext('2d'),video=document.querySelector('#video');
+const statusEl=document.querySelector('#status'),cameraBtn=document.querySelector('#cameraBtn'),shapeSelect=document.querySelector('#shape');
+let W=0,H=0,dpr=1,particles=[],handLandmarker=null,stream=null,running=true,lastVideoTime=-1,hand=null,burst=0;
+const rand=(a,b)=>a+Math.random()*(b-a);const N=1450;
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=Math.floor(W*dpr);canvas.height=Math.floor(H*dpr);canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(dpr,0,0,dpr,0,0);if(!particles.length)initParticles()}
+function initParticles(){particles=Array.from({length:N},()=>({x:rand(0,W),y:rand(0,H),vx:0,vy:0,size:rand(.6,2.1),phase:rand(0,Math.PI*2),speed:rand(.006,.025),hue:rand(306,333)}))}
+function targetFor(i,t){const p=particles[i],a=i/N*Math.PI*2;let x=0,y=0;const cx=W*.5,cy=H*.51,scale=Math.min(W,H)*.32;
+ switch(shapeSelect.value){case'heart':{const q=i/N*Math.PI*2*5;const xx=16*Math.pow(Math.sin(q),3),yy=13*Math.cos(q)-5*Math.cos(2*q)-2*Math.cos(3*q)-Math.cos(4*q);x=cx+xx*scale/18;y=cy-yy*scale/18;break}
+ case'butterfly':{const q=i/N*Math.PI*12;const r=Math.exp(Math.cos(q))-2*Math.cos(4*q)-Math.pow(Math.sin(q/12),5);x=cx+Math.sin(q)*r*scale*.28;y=cy+Math.cos(q)*r*scale*.28;break}
+ case'spiral':{const r=scale*(.08+.92*(i/N));const q=a*8+t*.18;x=cx+Math.cos(q)*r;y=cy+Math.sin(q)*r*.65;break}
+ case'wave':{x=(i/N)*W;y=cy+Math.sin(i*.035+t*1.7)*scale*.55+Math.sin(i*.012-t)*scale*.2;break}
+ default:{const arm=i%5, r=scale*Math.sqrt(i/N),q=a*5+t*.12+arm*1.256;x=cx+Math.cos(q)*r;y=cy+Math.sin(q)*r*.68;}}
+ x+=Math.sin(t*.6+p.phase)*7;y+=Math.cos(t*.7+p.phase)*7;return{x,y}}
+function draw(tms){requestAnimationFrame(draw);if(!running)return;const t=tms*.001;ctx.fillStyle='rgba(5,3,10,0.20)';ctx.fillRect(0,0,W,H);
+ // soft central glow
+ const glow=ctx.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,Math.min(W,H)*.48);glow.addColorStop(0,'rgba(100,15,95,.12)');glow.addColorStop(1,'rgba(5,3,10,0)');ctx.fillStyle=glow;ctx.fillRect(0,0,W,H);
+ let hx=hand? (1-hand.x)*W:W*.5,hy=hand?hand.y*H:H*.5;
+ for(let i=0;i<particles.length;i++){const p=particles[i],tar=targetFor(i,t);let tx=tar.x,ty=tar.y;
+   if(hand){const dx=p.x-hx,dy=p.y-hy,d=Math.max(1,Math.hypot(dx,dy));if(hand.pinch){tx+=(-dx/d)*Math.min(120,600/d);ty+=(-dy/d)*Math.min(120,600/d)}else if(hand.open&&d<220){tx+=dx/d*65;ty+=dy/d*65}tx+=(hx-W*.5)*.20;ty+=(hy-H*.5)*.20;}
+   if(burst>0){const a=p.phase+i*.13;tx+=Math.cos(a)*burst*rand(.2,1);ty+=Math.sin(a)*burst*rand(.2,1)}
+   p.vx+=(tx-p.x)*.018;p.vy+=(ty-p.y)*.018;p.vx*=.91;p.vy*=.91;p.x+=p.vx;p.y+=p.vy;
+   const tw=.65+.35*Math.sin(t*2+p.phase);ctx.beginPath();ctx.fillStyle=`hsla(${p.hue},100%,${66+tw*20}%,${.45+tw*.5})`;ctx.shadowBlur=5+tw*10;ctx.shadowColor='#ff4ecb';ctx.arc(p.x,p.y,p.size*(.7+tw*.7),0,Math.PI*2);ctx.fill();
+ }
+ ctx.shadowBlur=0;if(burst>0)burst*=.94;
+ if(hand){ctx.beginPath();ctx.arc(hx,hy,hand.pinch?15:8,0,Math.PI*2);ctx.strokeStyle='#ffb6ef';ctx.lineWidth=1.5;ctx.stroke();}
+}
+async function startCamera(){cameraBtn.disabled=true;statusEl.textContent='Meminta izin kamera…';try{
+ stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'user',width:{ideal:640},height:{ideal:480}}});video.srcObject=stream;await video.play();statusEl.textContent='Kamera aktif. Memuat model deteksi tangan…';
+ const vision=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+ handLandmarker=await HandLandmarker.createFromOptions(vision,{baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',delegate:'GPU'},runningMode:'VIDEO',numHands:1});
+ statusEl.textContent='Siap! Tangan belum terdeteksi — tunjukkan telapak ke kamera.';cameraBtn.textContent='Matikan kamera';cameraBtn.disabled=false;cameraBtn.onclick=stopCamera;detectLoop();
+ }catch(err){console.error(err);statusEl.textContent='Kamera gagal dibuka: '+(err.message||err)+'. Pastikan pakai HTTPS, izinkan kamera, lalu coba lagi.';cameraBtn.textContent='Coba lagi';cameraBtn.disabled=false;}}
+function detectLoop(){if(!handLandmarker||!stream)return;if(video.readyState>=2&&video.currentTime!==lastVideoTime){lastVideoTime=video.currentTime;try{const res=handLandmarker.detectForVideo(video,performance.now());if(res.landmarks&&res.landmarks.length){const lm=res.landmarks[0];const dist=(a,b)=>Math.hypot(lm[a].x-lm[b].x,lm[a].y-lm[b].y);const pinch=dist(4,8)<.065;const palm=dist(0,9);const open=[8,12,16,20].filter((tip,j)=>dist(tip,[5,9,13,17][j])>palm*.72).length>=3;hand={x:lm[9].x,y:lm[9].y,pinch,open};statusEl.textContent=pinch?'Gerakan terdeteksi: cubit — partikel tertarik.':open?'Gerakan terdeteksi: telapak terbuka — partikel menyebar.':'Tangan terdeteksi — gerakkan untuk mengontrol partikel.';}else{hand=null;statusEl.textContent='Kamera aktif. Tangan belum terdeteksi — tunjukkan telapak ke kamera.'}}catch(e){console.warn(e)}}requestAnimationFrame(detectLoop)}
+function stopCamera(){if(stream)stream.getTracks().forEach(t=>t.stop());stream=null;hand=null;handLandmarker?.close();handLandmarker=null;video.srcObject=null;cameraBtn.textContent='Aktifkan kamera';cameraBtn.onclick=startCamera;statusEl.textContent='Kamera mati. Mode demo aktif.'}
+cameraBtn.onclick=startCamera;document.querySelector('#burstBtn').addEventListener('click',()=>burst=180);document.querySelector('#pauseBtn').addEventListener('click',e=>{running=!running;e.currentTarget.textContent=running?'Jeda':'Lanjut';if(running)requestAnimationFrame(draw)});shapeSelect.addEventListener('change',()=>{particles.forEach(p=>{p.vx+=rand(-2,2);p.vy+=rand(-2,2)})});addEventListener('resize',resize);resize();requestAnimationFrame(draw);
+</script>
+</body>
+</html>
